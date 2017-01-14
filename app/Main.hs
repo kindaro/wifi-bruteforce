@@ -12,19 +12,37 @@ import Control.Arrow
 import Data.Maybe
 import Data.Text
 import Data.Text.IO
-import Prelude (IO, (.), ($), fmap, Eq (..), Show (..), return, sequence, (>>), (>>=), Bool (..), otherwise, Int)
-import qualified Prelude (filter, dropWhile, take)
+import Prelude (IO, (.), ($), fmap, Eq (..), Show (..)
+    , return, sequence, (>>), (>>=), Bool (..), otherwise, Int, (*), div)
+import qualified Prelude (filter, dropWhile, take, length)
 import Shelly
 default (Text)
 
 data Status = Right Text | Wrong Text | Error Text | Proceed Text deriving (Eq, Show)
 
+timeout :: Int
+timeout = 10
+
 main :: IO ()
 main = do
-    putStrLn "--- scan initiated ---"
+    putStrLn "--- listing networks ---"
     runner "ip" ["link", "set", "eno1", "up"]
     networks <- iwlist
     passwords <- (fmap lines) . readFile $ "passwords"
+
+    let howManyNetworks = Prelude.length networks
+    let howManyPasswords = Prelude.length passwords
+    let howManyIterations = howManyNetworks * howManyPasswords
+    let rawTiming = howManyIterations * timeout
+    let humanTiming = rawTiming `div` 60
+
+    putStrLn . concat $ [ "[ networks :: ", pack . show $ howManyNetworks, " ] "
+                      , "[ passwords :: ", pack . show $ howManyPasswords, " ] "
+                      , "[ total :: " , pack . show $ howManyIterations , " ]"
+                      ]
+
+    putStrLn . concat $ [ "Expected timing: ", pack . show $ humanTiming, " minutes." ]
+    putStrLn "--- scan initiated ---"
 
     results <- sequence [ innerLoop network password
                         | network <- networks
@@ -56,7 +74,7 @@ iwlist = fmap parse output
 supplicant :: Text -> IO Text
 supplicant conf = shelly . silently . (errExit False) $ do
     log <- fmap lines $ run "timeout"
-        [ (pack.show) (10::Int)
+        [ (pack.show) timeout
         , "wpa_supplicant"
         , "-P", "/run/wpa_supplicant_eno1.pid"
         , "-i", "eno1"
