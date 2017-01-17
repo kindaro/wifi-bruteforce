@@ -23,10 +23,12 @@ data Status = Right Text | Wrong Text | Error Text | Proceed Text deriving (Eq, 
 timeout :: Int
 timeout = 10
 
+interface = "wlo1"
+
 main :: IO ()
 main = do
     putStrLn "--- listing networks ---"
-    runner "ip" ["link", "set", "eno1", "up"]
+    runner "ip" ["link", "set", interface, "up"]
     networks <- iwlist
     passwords <- (fmap lines) . readFile $ "passwords"
 
@@ -62,7 +64,7 @@ iwlist :: IO [Text]
 iwlist = fmap parse output
     where
     output :: IO Text
-    output = runner "iwlist" ["eno1", "scanning"]
+    output = runner "iwlist" [interface, "scanning"]
 
     parse :: Text -> [Text]
     parse = lines
@@ -76,8 +78,8 @@ supplicant conf = shelly . silently . (errExit False) $ do
     log <- fmap lines $ run "timeout"
         [ (pack.show) timeout
         , "wpa_supplicant"
-        , "-P", "/run/wpa_supplicant_eno1.pid"
-        , "-i", "eno1"
+        , "-P", concat [ "/run/wpa_supplicant_", interface, ".pid" ]
+        , "-i", interface
         , "-D", "wext"
         , "-C", "/run/wpa_supplicant"
         , "-c", conf
