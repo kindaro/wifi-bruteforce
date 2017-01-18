@@ -8,11 +8,12 @@ import Data.Maybe
 import GHC.IO.Handle
 import System.Environment
 import System.Process
+import System.Timeout
 
 data Status = Good String | Wrong String | Error String | Proceed String deriving (Eq, Show)
 
-timeout :: Int
-timeout = 10
+maxSeconds :: Int
+maxSeconds = 3
 
 maxLines :: Int
 maxLines = 10
@@ -52,7 +53,7 @@ main = do
         , "[ total :: " , show $ length networks * length passwords, " ]"
         , "\n"
         , "Expected timing: "
-        , show $ length networks * length passwords * timeout `div` 60
+        , show $ length networks * length passwords * maxSeconds `div` 60
         , " minutes."
         ]
 
@@ -125,22 +126,28 @@ supplicant interface conf = do
     return res
 
     where
-    processDescription = proc "wpa_supplicant"
-        [ "-P", concat [ "/run/wpa_supplicant_", interface, ".pid" ]
+
+    processDescription = proc "timeout"
+        [ show (maxSeconds + 1)
+        , "wpa_supplicant"
+        , "-P", concat [ "/run/wpa_supplicant_", interface, ".pid" ]
         , "-i", interface
         , "-D", "nl80211,wext"
         , "-C", "/run/wpa_supplicant_" ++ interface
         , "-c", conf
         ]
 
-    getToken = getToken' maxLines
+    getToken = fmap maybeError <<< timeout maxSeconds <<< getToken' maxLines
+        where
+        maybeError = maybe (Error $ "No definite result after " ++ show maxSeconds ++ " seconds.") id
+
     getToken' i handle
         | i > 0 = do
             token <- tokenize `fmap` hGetLine handle
             case token of 
                 (Proceed _) -> putStrLn (show token) >> getToken' (i - 1) handle
                 _ -> return token
-        | otherwise = return (Error $ "No definite result after " ++ show maxLines ++ "lines.")
+        | otherwise = return (Error $ "No definite result after " ++ show maxLines ++ " lines.")
 
     tokenize :: String -> Status
     tokenize message
