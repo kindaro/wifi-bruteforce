@@ -16,6 +16,7 @@ import Prelude (IO, (.), ($), fmap, Eq (..), Show (..)
     , return, sequence, (>>), (>>=), Bool (..), otherwise, Int, (*), div)
 import qualified Prelude (filter, dropWhile, take, length)
 import Shelly
+import System.Environment
 default (Text)
 
 data Status = Right Text | Wrong Text | Error Text | Proceed Text deriving (Eq, Show)
@@ -23,14 +24,16 @@ data Status = Right Text | Wrong Text | Error Text | Proceed Text deriving (Eq, 
 timeout :: Int
 timeout = 10
 
-interface = "wlo1"
-
 main :: IO ()
 main = do
+    (interface:passwordFile:freeArgs) <- (fmap . fmap $ pack) getArgs
     putStrLn "--- listing networks ---"
     runner "ip" ["link", "set", interface, "up"]
-    networks <- iwlist
-    passwords <- (fmap lines) . readFile $ "passwords"
+    
+    networks <- case freeArgs of
+            [] -> iwlist interface
+            _  -> return freeArgs
+    passwords <- (fmap lines) . readFile . unpack $ passwordFile
 
     let howManyNetworks = Prelude.length networks
     let howManyPasswords = Prelude.length passwords
@@ -46,22 +49,22 @@ main = do
     putStrLn . concat $ [ "Expected timing: ", pack . show $ humanTiming, " minutes." ]
     putStrLn "--- scan initiated ---"
 
-    results <- sequence [ innerLoop network password
+    results <- sequence [ innerLoop interface network password
                         | network <- networks
                         , password <- passwords
                         ]
     putStrLn "--- scan completed ---"
 
 
-innerLoop :: Text -> Text -> IO Text
-innerLoop network password = report >> conf network password >>= supplicant
+innerLoop :: Text -> Text -> Text -> IO Text
+innerLoop interface network password = report >> conf network password >>= supplicant interface
     where
     report = putStr . concat $ [ "[ ", network, " ] [ ", password, " ] -- " ]
 
 runner cmd args = shelly . silently $ run cmd args
 
-iwlist :: IO [Text]
-iwlist = fmap parse output
+iwlist :: Text -> IO [Text]
+iwlist interface = fmap parse output
     where
     output :: IO Text
     output = runner "iwlist" [interface, "scanning"]
@@ -73,8 +76,8 @@ iwlist = fmap parse output
         >>> fmap (drop 6)
         >>> fmap (drop 1 >>> dropEnd 1)
 
-supplicant :: Text -> IO Text
-supplicant conf = shelly . silently . (errExit False) $ do
+supplicant :: Text -> Text -> IO Text
+supplicant interface conf = shelly . silently . (errExit False) $ do
     log <- fmap lines $ run "timeout"
         [ (pack.show) timeout
         , "wpa_supplicant"
