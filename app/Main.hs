@@ -33,8 +33,8 @@ main = do
     putStrLn "--- scan initiated ---"
 
     results <- sequence [ attempt interface network password
-                        | network <- networks
-                        , password <- passwords
+                        | password <- passwords
+                        , network <- networks
                         ]
 
     putStrLn "--- scan completed ---"
