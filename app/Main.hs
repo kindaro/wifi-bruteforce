@@ -28,7 +28,7 @@ main = do
         then errorWithoutStackTrace "No networks found."
         else return ()
     passwords <- fmap lines $ readFile passwordFile
-    showPreamble networks passwords
+    printPreamble networks passwords
 
     putStrLn "--- scan initiated ---"
 
@@ -39,17 +39,37 @@ main = do
 
     putStrLn "--- scan completed ---"
 
+    printResults results
+
     where
 
-    showPreamble networks passwords = putStrLn . concat $
-            [ "[ networks :: ", show . length $ networks, " ] "
-            , "[ passwords :: ", show . length $ passwords, " ] "
-            , "[ total :: " , show $ length networks * length passwords, " ]"
-            , "\n"
-            , "Expected timing: "
-            , show $ length networks * length passwords * timeout `div` 60
-            , " minutes."
-            ]
+    printPreamble networks passwords = putStrLn . concat $
+        [ "[ networks :: ", show . length $ networks, " ] "
+        , "[ passwords :: ", show . length $ passwords, " ] "
+        , "[ total :: " , show $ length networks * length passwords, " ]"
+        , "\n"
+        , "Expected timing: "
+        , show $ length networks * length passwords * timeout `div` 60
+        , " minutes."
+        ]
+
+    printResults results
+        | length goodResults > 0 = do
+            putStrLn showResultHeader
+            putStr $ unlines $ showResult `fmap` goodResults
+        | otherwise = putStrLn "=== no networks found ==="
+
+        where
+
+        isGood (Good _) = True
+        isGood _ = False
+
+        goodResults = filter (snd >>> isGood) results
+
+        showResultHeader = concat [ "=== found ", show . length $ goodResults, " networks ===" ]
+
+        showResult ((network, password), Good message) = concat
+            [ "[ ", network, " ] [ ", password, " ]" ]
 
 attempt :: String -> String -> String -> IO ((String, String), Status)
 attempt interface network password
