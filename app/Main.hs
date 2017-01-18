@@ -14,6 +14,9 @@ data Status = Good String | Wrong String | Error String | Proceed String derivin
 timeout :: Int
 timeout = 10
 
+maxLines :: Int
+maxLines = 10
+
 main :: IO ()
 main = do
     ( interface : passwordFile : freeArgs ) <- getArgs
@@ -130,14 +133,14 @@ supplicant interface conf = do
         , "-c", conf
         ]
 
-    getToken = getToken' 0
+    getToken = getToken' maxLines
     getToken' i handle
-        | i > 10 = return (Wrong "No definite result.")
-        | otherwise = do
-        token <- tokenize `fmap` hGetLine handle
-        case token of 
-            (Proceed _) -> putStrLn (show token) >> getToken' (i + 1) handle
-            _ -> return token
+        | i > 0 = do
+            token <- tokenize `fmap` hGetLine handle
+            case token of 
+                (Proceed _) -> putStrLn (show token) >> getToken' (i - 1) handle
+                _ -> return token
+        | otherwise = return (Error $ "No definite result after " ++ show maxLines ++ "lines.")
 
     tokenize :: String -> Status
     tokenize message
