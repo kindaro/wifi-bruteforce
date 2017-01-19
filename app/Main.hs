@@ -137,7 +137,7 @@ supplicant interface conf = do
         , "-c", conf
         ]
 
-    getToken = fmap maybeError <<< timeout maxSeconds <<< getToken' maxLines
+    getToken = fmap maybeError <<< timeout (maxSeconds * 10 ^ 6) <<< getToken' maxLines
         where
         maybeError = maybe (Error $ "No definite result after " ++ show maxSeconds ++ " seconds.") id
 
