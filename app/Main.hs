@@ -13,7 +13,7 @@ import System.Timeout
 data Status = Good String | Wrong String | Error String | Proceed String deriving (Eq, Show)
 
 maxSeconds :: Int
-maxSeconds = 3
+maxSeconds = 5
 
 maxLines :: Int
 maxLines = 10
