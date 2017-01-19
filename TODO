@@ -1,2 +1,16 @@
 1. When I don't need more lines from supplicant, I should close the handle so that it dies, rather
 than using timeout. -- Done.
+
+1. Allow for setting timeouts from command line.
+
+1. Sort networks by signal quality or power.
+
+1. Actually parse the arguments, incliding timeouts.
+
+1. Add arguments for limiting the networks to be scanned to only N best or those above P signal
+quality.
+
+1. Allow for limiting the scan parameters so as to not exceed a given time, by dropping enough
+weak networks first and less frequent (bottom of the list) passwords second.
+
+1. Report progress when hupped and catch interrupt also.
