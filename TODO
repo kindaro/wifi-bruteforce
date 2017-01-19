@@ -1,2 +1,2 @@
-When I don't need more lines from supplicant, I should close the handle so that it dies, rather
-than using timeout.
+1. When I don't need more lines from supplicant, I should close the handle so that it dies, rather
+than using timeout. -- Done.
