@@ -156,5 +156,6 @@ supplicant interface conf = do
         | "timed out" `isInfixOf` message = Error message
         | "ioctl" `isInfixOf` message = Error message
         | "Association request to the driver failed" `isInfixOf` message = Error message
+        | "CTRL-EVENT-TERMINATING" `isInfixOf` message = Error message
         | otherwise = Proceed message
 
