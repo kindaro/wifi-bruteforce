@@ -1,6 +1,9 @@
 1. When I don't need more lines from supplicant, I should close the handle so that it dies, rather
 than using timeout. -- Done.
 
+1. Network name comes out of `iwlist` as escaped unicode. I should encode it before putting it to
+supplicant conf.
+
 1. Allow for setting timeouts from command line.
 
 1. Sort networks by signal quality or power.
