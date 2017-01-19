@@ -53,7 +53,7 @@ main = do
         , "[ total :: " , show $ length networks * length passwords, " ]"
         , "\n"
         , "Expected timing: "
-        , show $ length networks * length passwords * maxSeconds `div` 60
+        , show $ length networks * length passwords * maxSeconds `div` 60 + 1
         , " minutes."
         ]
 
