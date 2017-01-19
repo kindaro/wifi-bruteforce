@@ -53,7 +53,7 @@ main = do
         , "[ total :: " , show $ length networks * length passwords, " ]"
         , "\n"
         , "Expected timing: "
-        , show $ length networks * length passwords * maxSeconds `div` 60
+        , show $ length networks * length passwords * maxSeconds `div` 60 + 1
         , " minutes."
         ]
 
@@ -145,7 +145,7 @@ supplicant interface conf = do
         | i > 0 = do
             token <- tokenize `fmap` hGetLine handle
             case token of 
-                (Proceed _) -> putStrLn (show token) >> getToken' (i - 1) handle
+                (Proceed _) -> {- putStrLn (show token) >> -} getToken' (i - 1) handle
                 _ -> return token
         | otherwise = return (Error $ "No definite result after " ++ show maxLines ++ " lines.")
 
