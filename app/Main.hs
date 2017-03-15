@@ -7,19 +7,21 @@ import Data.List
 import Data.Maybe
 import GHC.IO.Handle
 import System.Environment
+import System.IO
 import System.Process
 import System.Timeout
 
 data Status = Good String | Wrong String | Error String | Proceed String deriving (Eq, Show)
 
 maxSeconds :: Int
-maxSeconds = 5
+maxSeconds = 10
 
 maxLines :: Int
 maxLines = 10
 
 main :: IO ()
 main = do
+    hSetBuffering stdout NoBuffering
     ( interface : passwordFile : freeArgs ) <- getArgs
     putStrLn $ "=== launch on interface [ " ++ interface ++ " ] ==="
 
@@ -145,7 +147,7 @@ supplicant interface conf = do
         | i > 0 = do
             token <- tokenize `fmap` hGetLine handle
             case token of 
-                (Proceed _) -> putStrLn (show token) >> getToken' (i - 1) handle
+                (Proceed _) -> getToken' (i - 1) handle
                 _ -> return token
         | otherwise = return (Error $ "No definite result after " ++ show maxLines ++ " lines.")
 
